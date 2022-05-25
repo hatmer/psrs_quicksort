@@ -31,7 +31,7 @@ void copy(int* src, int* dst, int length) {
 int partition(int* arr, int lo, int hi) {
   // choose pivot
   int pivot = arr[(hi+lo)/2];
-  //printf("lo: %d, pivot: %d, hi: %d\n", lo, pivot, hi);
+  printf("lo: %d, pivot: %d, hi: %d\n", lo, pivot, hi);
   // pointer to each end
   int i = lo-1;
   int j = hi+1;
@@ -58,7 +58,7 @@ void quicksortparallel(int* arr, int lo, int hi) {
 		int args[4] = {lo, pivot, pivot+1, hi};
 		#pragma omp parallel for
 		for (int i = 0; i < 4; i+=2) {
-      printf("%d\n", omp_get_num_threads());
+      printf("thread %d\n", omp_get_thread_num());
 			quicksortparallel(arr,args[i],args[i+1]);
 		}
   }
@@ -85,7 +85,7 @@ int main(int argc, char *argv[]) {
   int threads = atoi(argv[1]);
   omp_set_num_threads(threads);
 
-  for (int N = 0; N < 100; N++) {
+  for (int N = 10; N < 11; N++) {
 		int *orig = (int*)malloc(N*sizeof(int));
 		int *arr = (int*)malloc(N*sizeof(int));
 		arr[0] = 1;
@@ -94,6 +94,7 @@ int main(int argc, char *argv[]) {
 			orig[i] = ((arr[i-1] + 50) - 12) % N;
 			arr[i] = ((arr[i-1] + 50) - 12) % N;
 		}
+    show(arr, N);
     quicksort(arr,0, N-1);
     verify(orig, arr, N);
  
