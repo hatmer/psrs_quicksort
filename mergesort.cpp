@@ -4,18 +4,6 @@
 #include <algorithm>
 
 /*
-struct list {
-  int* elems;
-  int length;
-} list;
-*/
-/*
-parallel merge: two threads find and merge top and bottom half of lists
-void merge() {
-
-}
-*/
-/*
 Receive pointer to list and length
 Partition in half if have 2 or more elements, if have less than 2 elements return
 Merge the two lists, i.e. sort them
@@ -39,11 +27,14 @@ void verify(int *orig, int *arr, int length) {
   }
 }
 
-void mergesort(int* arr, int* working_buffer, int length, int depth) {
-  if (depth == 0) // TODO improve
-    for (int i = 0; i < length; i++)
-      working_buffer[i] = arr[i];
+void copy(int* src, int* dst, int length) {
+  for (int i = 0; i < length; i++)
+    dst[i] = src[i];
+}
 
+void mergesort(int* arr, int* working_buffer, int length, int depth) {
+  if (depth == 0)
+    copy(arr, working_buffer, length);
 
   // return if 1 or 0 elements
   if (length < 2)
@@ -53,12 +44,6 @@ void mergesort(int* arr, int* working_buffer, int length, int depth) {
   int N = length / 2;
   mergesort(arr, working_buffer, N, depth+1);
   mergesort(&arr[N], &working_buffer[N], length-N, depth+1);
-/*
-  // If the direct merge is already sorted
-    if (arr[mid] <= arr[start2]) {
-        return;
-    }
- */
 
   int i = 0;
   int j = N;
@@ -70,6 +55,12 @@ void mergesort(int* arr, int* working_buffer, int length, int depth) {
     dest = arr;
     source = working_buffer;
   }
+
+  // optimisation: check if already sorted
+  if (source[N-1] < source[N]) {
+    copy(source, dest, length);
+    return;
+  } 
 
   /*printf("-------\nmerging on depth %d\n", depth);
   printf("source: \n");
@@ -88,7 +79,7 @@ void mergesort(int* arr, int* working_buffer, int length, int depth) {
     } else if (source[i] <= source[j]) {
       dest[index] = source[i];
       i++;
-    } else if (source[j] < source[i]) { // TODO remove if
+    } else { 
       dest[index] = source[j];
       j++;
     }
@@ -104,6 +95,14 @@ void mergesort(int* arr, int* working_buffer, int length, int depth) {
 
 int main(int argc, char *argv[]) {
   // create test input
+  if (argc != 2) {
+    printf("usage: ./%s <number of threads>\n", argv[0]);
+    return -1;
+  }
+
+  int threads = atoi(argv[1]);
+  //omp_set_num_threads(threads);
+
   for (int N = 0; N < 100; N++) {
 		int *orig = (int*)malloc(N*sizeof(int));
 		int *arr = (int*)malloc(N*sizeof(int));

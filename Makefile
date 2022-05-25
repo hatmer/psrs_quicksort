@@ -1,3 +1,3 @@
 
 all:
-	gcc -o test -fopenmp -Wall mergesort.cpp && ./test
+	gcc -o test -fopenmp -Wall quicksort.cpp && ./test 2
