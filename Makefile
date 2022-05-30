@@ -1,7 +1,7 @@
-T=8
+T=64
 
 all:
-	g++ -ggdb -o test -O2 -march=native -fopenmp -Wall quicksort.cpp -lprofiler && bash -c "time ./test $T"
+	g++ -o test -O3 -march=native -fopenmp -Wall quicksort.cpp && bash -c "./test $T"
 
 perf:
 	env CPUPROFILE=quicksort.prof ./test $T && google-pprof --text --lines test quicksort.prof
