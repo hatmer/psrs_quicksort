@@ -108,6 +108,7 @@ void PSRS(double* arr, int lo, int hi) {
     // => store in array of pointers to arrays
     sample(arr, segment_start, segment_end, interval, samples, myid);
   }
+
   // 3. one process gathers and sorts samples
   quicksort(samples,0,Psquared);
   show(samples, Psquared);
@@ -119,6 +120,8 @@ void PSRS(double* arr, int lo, int hi) {
   }
 
   int partitions[P][P][2];
+  double *result = (double*)malloc((hi+1)*sizeof(double));
+  int starting_result_indices[P];
 
   // then broadcasts pivots to processes
   #pragma omp parallel
@@ -127,8 +130,10 @@ void PSRS(double* arr, int lo, int hi) {
     int myid = omp_get_thread_num();
     int segment_start = myid*segment_size;
     int segment_end = segment_start+segment_size;
-    pivot_idx = 0;
-    start = segment_start;
+    if (myid == P-1)
+      segment_end = hi+1;
+    int pivot_idx = 0;
+    int start = segment_start;
     for (int i = segment_start; i<segment_end; i++) {
       if (arr[i+1] > pivots[pivot_idx]) {
         partitions[myid][pivot_idx][0] = start;
@@ -142,9 +147,59 @@ void PSRS(double* arr, int lo, int hi) {
         }
       }
     }
-    // 5. process i gets all partitions #i (processes send partitions to eachother)
+    #pragma omp barrier
 
-    // 6. each process merges its partitions into a single list
+    // 5. process i gets all partitions #i and merges its partitions into a single list
+    #pragma omp single // to ensure previous threads have completed, to avoid recalculating sums
+    {
+      // for each process, sum all assigned intervals
+      for (int p = 0; p < P; p++) {
+        int psum = 0;
+        for (int i = 0; i < P; i++) {
+          psum += partitions[i][p][1] - partitions[i][p][0];
+        }
+        starting_result_indices[p] = psum;
+        if (p > 0) {
+          starting_result_indices[p] += starting_result_indices[p-1];
+        }
+      }
+    }
+
+    // shortcut aliases for source slots
+    int pointers[P]; // indices to next potential source slots
+    int stops[P];    // index to stop at for each source pointer
+    for (int i = 0; i < P; i++) {
+      pointers[i] = partitions[i][myid][0];
+      stops[i] = partitions[i][myid][1];
+    }
+
+    int idx = starting_result_indices[myid]; // index of next destination slot
+    int end_index;
+    if (myid = P-1) // is last process
+      end_index = segment_end; // reuse
+    else
+      end_index = starting_result_indices[myid+1];
+
+    // for each slot, find smallest element from partitions
+    while (idx < end_index) {
+      // find max of all valid candidate sources
+      double minVal = 0.0;
+      int minInd = 0;
+      // for each of pointers, if is less than stop and more than maxVal, use arr[pointers[x]] and store x
+      for (int i = 0; i < P; i++) {
+        if (pointers[i] < stops[i] && arr[pointers[i]] < minVal) {
+          minVal = arr[pointers[i]];
+          minInd = i;
+        }
+      }
+
+      result[idx] = minVal;
+      // increment source and dest pointers
+      pointers[minInd]++;
+      idx++;
+
+
+    }
   }
   free(samples);
 }
@@ -187,6 +242,7 @@ int main(int argc, char *argv[]) {
 
     // verify
     //   verify(orig, arr, N);
+    show(arr, N);
 
     // cleanup
     free(arr);
