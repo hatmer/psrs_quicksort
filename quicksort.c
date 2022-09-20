@@ -12,22 +12,7 @@ void show(double *arr, int length) {
   printf("\n");
 }
 
-/*
-// verify correct sorting
-void verify(int *orig, int *arr, int length) {
-  std::sort(orig, orig+length);
-  for (int i = 0; i < length; i++) {
-    if (orig[i] != arr[i]) {
-      printf("invalid sorting for length %d\nexpected:\n", length);
-      show(orig, length);
-      printf("actual:\n");
-      show(arr, length);
-      printf("%d != %d\n", orig[i], arr[i]);
-      return;
-    }
-  }
-}
-*/
+
 
 // partition the array around pivot
 int partition(double* arr, int lo, int hi) {
@@ -69,59 +54,78 @@ void quicksort(double* arr, int lo, int hi) {
   }
 }
 
+// verify correct sorting
+void verify(double *orig, double *arr, int length) {
+  quicksort(orig, 0, length-1);
+  for (int i = 0; i < length; i++) {
+    if (orig[i] != arr[i]) {
+      printf("invalid sorting for length %d\nexpected:\n", length);
+      show(orig, length);
+      printf("actual:\n");
+      show(arr, length);
+      printf("%f != %f\n", orig[i], arr[i]);
+      return;
+    }
+  }
+}
+
 void sample(double* arr, int lo, int hi, int interval, double* samples, int threadID) {
   int P = omp_get_max_threads();
   int samples_index_zero = threadID * P;
-
+  
   for (int i = 0; i < P; i++) {
     samples[samples_index_zero+i] = arr[lo + i*interval]; // TODO check for segfault at end of array
   }
 }
 
 // https://www.uio.no/studier/emner/matnat/ifi/INF3380/v10/undervisningsmateriale/inf3380-week12.pdf
-void PSRS(double* arr, int lo, int hi) {
+double* PSRS(double* arr, int lo, int hi) {
   int P = omp_get_max_threads();
-  //printf("thread: %d\n", omp_get_thread_num());
   // 0. partition list into P segments
-  int segment_size = (hi+1) / P;
-  //printf("segment_size: %d\n", segment_size);
+  int segment_size = ((hi+1) / P) + 1;
+  printf("segment_size: %d\n", segment_size);
 
   // each process will take P samples
   int Psquared = P*P;
   double *samples = (double*)malloc(Psquared*sizeof(double));
   int interval = (hi+1) / Psquared;
+  printf("pivot interval is %d\n", interval);
 
   // 1. P processes each do sequential quicksort on local segment
 #pragma omp parallel
   {
     int myid = omp_get_thread_num();
-    int segment_start = myid*segment_size;
-    int segment_end = segment_start+segment_size;
+    int segment_lo = myid*segment_size;
+    int segment_hi = segment_lo+segment_size-1; // last element in this thread's segment
     if (myid == P-1)
-      segment_end = hi;
+      segment_hi = hi;
 
-    //printf("%d - %d\n", segment_start, segment_end);
+    printf("thread %d will sort %d - %d inclusive\n", myid, segment_lo, segment_hi);
 
-    quicksort(arr, segment_start, segment_end);
+    quicksort(arr, segment_lo, segment_hi);
 
     // 2. each process samples its segment
     // => store in array of pointers to arrays
-    sample(arr, segment_start, segment_end, interval, samples, myid);
+    sample(arr, segment_lo, segment_hi, interval, samples, myid);
   }
 
   // 3. one process gathers and sorts samples
-  quicksort(samples,0,Psquared);
-  show(samples, Psquared);
+  quicksort(samples,0,Psquared-1);
+  show(samples,Psquared);
 
   // then selects P-1 pivots TODO consider random choice of pivots?
+  // sample at regular intervals starting at P/2 to avoid lowest and highest pivots
   double pivots[P-1];
-  for (int i = 0; i < P-1; i++) {
-    pivots[i] = samples[i+P];
-  }
+  for (int i = 0; i < P-1; i++)
+    pivots[i] = samples[(P/2)+i*P];
+
+  printf("selected pivots: ");
+  show(pivots, P-1);
 
   int partitions[P][P][2];
   double *result = (double*)malloc((hi+1)*sizeof(double));
   int starting_result_indices[P];
+  starting_result_indices[0] = 0;
 
   // then broadcasts pivots to processes
   #pragma omp parallel
@@ -129,20 +133,23 @@ void PSRS(double* arr, int lo, int hi) {
     // 4. each process partitions its sorted segment into P disjoint pieces
     int myid = omp_get_thread_num();
     int segment_start = myid*segment_size;
-    int segment_end = segment_start+segment_size;
+    int segment_end = segment_start+segment_size-1;
+    printf("thread %d will partition from %d - %d inclusive\n", myid, segment_start, segment_end);
     if (myid == P-1)
-      segment_end = hi+1;
+      segment_end = hi;
     int pivot_idx = 0;
     int start = segment_start;
-    for (int i = segment_start; i<segment_end; i++) {
-      if (arr[i+1] > pivots[pivot_idx]) {
+    for (int i = segment_start; i<=segment_end; i++) {
+      if (arr[i] > pivots[pivot_idx]) { // if we have gone past the pivot
         partitions[myid][pivot_idx][0] = start;
-        partitions[myid][pivot_idx][1] = i;  // TODO what happens if a partition is empty?
+        partitions[myid][pivot_idx][1] = i-1;  // will be the same as start if the segment is empty
+        printf("thread %d making partition %d (%f) - %d (%f)\n", myid, start, arr[start], i-1, arr[i-1]);
         start = i;
         pivot_idx++;
-        if (pivot_idx == P) {
-          partitions[myid][P][0] = start;
-          partitions[myid][P][1] = segment_end;
+        if (pivot_idx == P-1) {
+          partitions[myid][P-1][0] = start;
+          partitions[myid][P-1][1] = segment_end;
+          printf("thread %d making partition %d (%f) - %d (%f)\n", myid, start, arr[start], segment_end, arr[segment_end]);
           break;
         }
       }
@@ -153,17 +160,21 @@ void PSRS(double* arr, int lo, int hi) {
     #pragma omp single // to ensure previous threads have completed, to avoid recalculating sums
     {
       // for each process, sum all assigned intervals
-      for (int p = 0; p < P; p++) {
+      for (int p = 1; p < P; p++) {
         int psum = 0;
         for (int i = 0; i < P; i++) {
-          psum += partitions[i][p][1] - partitions[i][p][0];
+          psum += 1 + partitions[i][p-1][1] - partitions[i][p-1][0];
         }
-        starting_result_indices[p] = psum;
-        if (p > 0) {
-          starting_result_indices[p] += starting_result_indices[p-1];
-        }
+        starting_result_indices[p] = psum + starting_result_indices[p-1];
       }
+
+      printf("starting result indices: ");
+      for (int i = 0; i < P; i++) {
+        printf(" %d,", starting_result_indices[i]);
+      }
+      printf("\n");
     }
+
 
     // shortcut aliases for source slots
     int pointers[P]; // indices to next potential source slots
@@ -174,25 +185,26 @@ void PSRS(double* arr, int lo, int hi) {
     }
 
     int idx = starting_result_indices[myid]; // index of next destination slot
+    printf("thread %d starting from index %d\n", myid, idx);
     int end_index;
-    if (myid = P-1) // is last process
+    if (myid == P-1) // is last process
       end_index = segment_end; // reuse
     else
-      end_index = starting_result_indices[myid+1];
-
+      end_index = starting_result_indices[myid+1]-1;
+    printf("end index is %d\n", end_index);
     // for each slot, find smallest element from partitions
-    while (idx < end_index) {
+    while (idx <= end_index) {
       // find max of all valid candidate sources
-      double minVal = 0.0;
+      double minVal = 1.1111;
       int minInd = 0;
       // for each of pointers, if is less than stop and more than maxVal, use arr[pointers[x]] and store x
       for (int i = 0; i < P; i++) {
-        if (pointers[i] < stops[i] && arr[pointers[i]] < minVal) {
+        if (pointers[i] <= stops[i] && arr[pointers[i]] < minVal) {
           minVal = arr[pointers[i]];
           minInd = i;
         }
       }
-
+      printf("thread %d putting %f into slot %d\n", omp_get_thread_num(), minVal, idx);
       result[idx] = minVal;
       // increment source and dest pointers
       pointers[minInd]++;
@@ -202,6 +214,7 @@ void PSRS(double* arr, int lo, int hi) {
     }
   }
   free(samples);
+  return result;
 }
 
 
@@ -216,7 +229,7 @@ int main(int argc, char *argv[]) {
   omp_set_nested(1);
 
   // run tests
-  for (int N = 10000; N < 10001; N++) {
+  for (int N = 100; N < 101; N++) {
 		double *orig = (double*)malloc(N*sizeof(double));
 		double *arr = (double*)malloc(N*sizeof(double));
 
@@ -231,22 +244,22 @@ int main(int argc, char *argv[]) {
 		 	arr[i] = orig[i];
 		}
     gsl_rng_free(r);
-    show(arr, N);
+    //show(arr, N);
 
     // time execution [https://stackoverflow.com/questions/5248915/execution-time-of-c-program]
     clock_t begin = clock();
-    PSRS(arr, 0, N-1);
+    double* result = PSRS(arr, 0, N-1);
     clock_t end = clock();
     double time_spent = (float)(end-begin) / CLOCKS_PER_SEC;
-    printf("%.8f\n", time_spent * 1000); // time in milliseconds
+    printf("time: %.8f ms\n", time_spent * 1000); // time in milliseconds
 
     // verify
-    //   verify(orig, arr, N);
-    show(arr, N);
+    verify(orig, result, N);
 
     // cleanup
     free(arr);
     free(orig);
+    free(result);
   }
   //printf("all tests completed\n");
 }
