@@ -180,8 +180,10 @@ double* PSRS(double* arr, int lo, int hi) {
     partition_segment(arr, partitions, pivots, segment_size, hi, P);
   }
 
+  // TODO not needed?
   #pragma omp barrier
 
+  // TODO not needed?
   #pragma omp single
   {
   printf("partitions contents\n");
@@ -195,8 +197,9 @@ double* PSRS(double* arr, int lo, int hi) {
     printf("%d, ", partitions[i]);
   }
   printf("\n");
-}
+  }
 
+  // TODO pragma not needed?
   // 5. process i gets all partitions #i and merges its partitions into a single list
   #pragma omp single // to ensure previous threads have completed, to avoid recalculating sums
   {
@@ -209,44 +212,56 @@ double* PSRS(double* arr, int lo, int hi) {
       starting_result_indices[p] = psum + starting_result_indices[p-1];
     }
   }
-
-  int myid = omp_get_thread_num();
-  int segment_start = myid*segment_size; 
-  int segment_end = segment_start+segment_size-1;
-  // shortcut aliases for source slots
-  int pointers[P]; // indices to next potential source slots
-  int stops[P];    // index to stop at for each source pointer
-  for (int i = 0; i < P; i++) {
-    pointers[i] = partitions[unrolledIndex(P, i, myid, 0)];
-    stops[i] = partitions[unrolledIndex(P, i, myid, 1)];
+  for (int i = 0; i< P; i++) {
+    printf("%d, ", starting_result_indices[i]);
   }
+  printf("\n");
 
-  int idx = starting_result_indices[myid]; // index of next destination slot
-  //printf("thread %d starting from index %d\n", myid, idx);
-  int end_index;
-  if (myid == P-1) // is last process
-    end_index = segment_end; // reuse
-  else
-    end_index = starting_result_indices[myid+1]-1;
-  //printf("end index is %d\n", end_index);
-  // for each slot, find smallest element from partitions
-  while (idx <= end_index) {
-    // find max of all valid candidate sources
-    double minVal = 1.1;
-    int minInd = 0;
-    // for each of pointers, if is less than stop and more than maxVal, use arr[pointers[x]] and store x
-    for (int i = 0; i < P; i++) {
-      if (pointers[i] <= stops[i] && arr[pointers[i]] < minVal) {
-        minVal = arr[pointers[i]];
-        minInd = i;
-      }
+  #pragma omp parallel
+  {
+    // extract shortcuts (TODO remove)
+    int myid = omp_get_thread_num();
+    int segment_start = myid*segment_size;
+    int segment_end = segment_start+segment_size-1;
+    if (myid == P-1){
+      segment_end = hi;
     }
-    result[idx] = minVal;
-    // increment source and dest pointers
-    pointers[minInd]++;
-    idx++;
+    // shortcut aliases for source slots
+    int pointers[P]; // indices to next potential source slots
+    int stops[P];    // index to stop at for each source pointer
+    for (int i = 0; i < P; i++) {
+      pointers[i] = partitions[unrolledIndex(P, i, myid, 0)];
+      stops[i] = partitions[unrolledIndex(P, i, myid, 1)];
+    }
+
+    // merge 
+    int idx = starting_result_indices[myid]; // index of next destination slot
+    //printf("thread %d starting from index %d\n", myid, idx);
+    int end_index;
+    if (myid == P-1) // is last process
+      end_index = segment_end; // reuse
+    else
+      end_index = starting_result_indices[myid+1]-1;
+    //printf("end index is %d\n", end_index);
+    // for each slot, find smallest element from partitions
+    while (idx <= end_index) {
+      // find max of all valid candidate sources
+      double minVal = 1.1;
+      int minInd = 0;
+      // for each of pointers, if is less than stop and more than maxVal, use arr[pointers[x]] and store x
+      for (int i = 0; i < P; i++) {
+        if (pointers[i] <= stops[i] && arr[pointers[i]] < minVal) {
+          minVal = arr[pointers[i]];
+          minInd = i;
+        }
+      }
+      result[idx] = minVal;
+      // increment source and dest pointers
+      pointers[minInd]++;
+      idx++;
 
 
+    }
   }
   free(partitions);
   free(pivots);
