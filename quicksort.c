@@ -1,7 +1,6 @@
 #include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
-//#include <algorithm>
 #include <gsl/gsl_rng.h>
 #include <time.h>
 
@@ -57,12 +56,11 @@ void verify(double *orig, double *arr, int length) {
   quicksort(orig, 0, length-1);
   for (int i = 0; i < length; i++) {
     if (orig[i] != arr[i]) {
-      printf("error for %d elements at element %d: %.4f != %.4f\n", length, i, orig[i], arr[i]);
-      exit(1);
+      printf("error for %d elements at element %d: %.8f != %.8f\n", length, i, orig[i], arr[i]);
       //printf("invalid sorting for length %d\nexpected:\n", length);
       //show(orig, length);
       //printf("actual:\n");
-      //show(arr, length);
+      show(arr, length);
       //printf("%f != %f\n", orig[i], arr[i]);
       return;
     }
@@ -75,6 +73,46 @@ void sample(double* arr, int lo, int hi, int interval, double* samples, int thre
   
   for (int i = 0; i < P; i++) {
     samples[samples_index_zero+i] = arr[lo + i*interval]; // TODO check for segfault at end of array
+  }
+}
+
+int unrolledIndex(int P, int row, int col, int ind) {
+  //  printf("unrolled (%d, %d, %d, %d): %d\n", P, row, col, ind, row*P + col + ind);
+  return row*(P+P) + (col+col) + ind;
+}
+
+void partition_segment(double* arr, int* partitions, double* pivots, int segment_size, int hi, int P) {
+  // 4. each process partitions its sorted segment into P disjoint pieces
+  int myid = omp_get_thread_num();
+  int segment_start = myid*segment_size;
+  int segment_end = segment_start+segment_size-1;
+  if (myid == P-1)
+    segment_end = hi;
+  printf("test");
+  printf("thread %d will partition from %d - %d inclusive\n", myid, segment_start, segment_end);
+
+  int slot = 0;
+  int first_elem = 1;
+
+  for (int i = segment_start; i<=segment_end; i++) { // for each item in this thread's segment
+    if (arr[i] > pivots[slot] || first_elem) { // if this item is greater than the current pivot or is first element
+      first_elem = 0;
+      while (arr[i] > pivots[slot]) {
+        slot++;
+        if (slot == P-1) { // out of pivots
+          printf("out of pivots. Thread %d setting last slot to [%d,%d]\n", myid, i ,segment_end);
+          partitions[unrolledIndex(P, myid, slot, 0)] = i;
+          partitions[unrolledIndex(P, myid, slot, 1)] = segment_end;
+          return;
+        }
+      }
+      printf("setting first element of slot %d. Thread %d setting [%d,%d]\n", slot, myid, i,i);
+      partitions[unrolledIndex(P, myid, slot, 0)] = i;
+      partitions[unrolledIndex(P, myid, slot, 1)] = i; // in case this partition has only one element
+    } else {
+      printf("updating slot %d. Thread %d setting [_,%d]\n",slot, myid,i);
+      partitions[unrolledIndex(P, myid, P-1, 1)] = i; // update partition end
+    }
   }
 }
 
@@ -116,16 +154,22 @@ double* PSRS(double* arr, int lo, int hi) {
   //printf("samples: ");
   //show(samples,Psquared);
 
-  // then selects P-1 pivots TODO consider random choice of pivots?
+  // then selects P-1 pivots
   // sample at regular intervals starting at P/2 to avoid lowest and highest pivots
-  double pivots[P-1];
+  double* pivots = (double*)malloc((P-1)*sizeof(double));
   for (int i = 0; i < P-1; i++)
     pivots[i] = samples[(P/2)+i*P];
 
-  //printf("selected pivots: ");
-  //show(pivots, P-1);
+  printf("selected pivots: ");
+  show(pivots, P-1);
 
-  int partitions[P][P][2];
+  int* partitions = (int*)malloc(P*P*2*sizeof(int));
+  // populate partitions with null entries
+  for (int i = 0; i < P*P*2; i+=2) {
+    partitions[i] = -1;
+    partitions[i+1] = -2;
+  }
+
   double *result = (double*)malloc((hi+1)*sizeof(double));
   int starting_result_indices[P];
   starting_result_indices[0] = 0;
@@ -133,83 +177,79 @@ double* PSRS(double* arr, int lo, int hi) {
   // then broadcasts pivots to processes
   #pragma omp parallel
   {
-    // 4. each process partitions its sorted segment into P disjoint pieces
-    int myid = omp_get_thread_num();
-    int segment_start = myid*segment_size;
-    int segment_end = segment_start+segment_size-1;
-    //printf("thread %d will partition from %d - %d inclusive\n", myid, segment_start, segment_end);
-    if (myid == P-1)
-      segment_end = hi;
-    int pivot_idx = 0;
-    int start = segment_start;
-    for (int i = segment_start; i<=segment_end; i++) {
-      if (arr[i] > pivots[pivot_idx]) { // if we have gone past the pivot
-        partitions[myid][pivot_idx][0] = start;
-        partitions[myid][pivot_idx][1] = i-1;  // will be the same as start if the segment is empty
-        //printf("thread %d making partition %d (%f) - %d (%f)\n", myid, start, arr[start], i-1, arr[i-1]);
-        start = i;
-        pivot_idx++;
-        if (pivot_idx == P-1) {
-          partitions[myid][P-1][0] = start;
-          partitions[myid][P-1][1] = segment_end;
-          //printf("thread %d making partition %d (%f) - %d (%f)\n", myid, start, arr[start], segment_end, arr[segment_end]);
-          break;
-        }
-      }
+    partition_segment(arr, partitions, pivots, segment_size, hi, P);
+  }
+
+  #pragma omp barrier
+
+  #pragma omp single
+  {
+  printf("partitions contents\n");
+  for (int i = 0; i < P; i++) {
+    for (int j = 0; j < P; j++) {
+      printf("[%d (%f),%d (%f)] | ", partitions[unrolledIndex(P, i, j, 0)], arr[partitions[unrolledIndex(P, i, j, 0)]], partitions[unrolledIndex(P, i, j, 1)], arr[partitions[unrolledIndex(P, i, j, 1)]]);
     }
-    #pragma omp barrier
+    printf("\n");
+  }
+  for (int i = 0; i< P*P*2; i++) {
+    printf("%d, ", partitions[i]);
+  }
+  printf("\n");
+}
 
-    // 5. process i gets all partitions #i and merges its partitions into a single list
-    #pragma omp single // to ensure previous threads have completed, to avoid recalculating sums
-    {
-      // for each process, sum all assigned intervals
-      for (int p = 1; p < P; p++) {
-        int psum = 0;
-        for (int i = 0; i < P; i++) {
-          psum += 1 + partitions[i][p-1][1] - partitions[i][p-1][0];
-        }
-        starting_result_indices[p] = psum + starting_result_indices[p-1];
-      }
-    }
-
-
-    // shortcut aliases for source slots
-    int pointers[P]; // indices to next potential source slots
-    int stops[P];    // index to stop at for each source pointer
-    for (int i = 0; i < P; i++) {
-      pointers[i] = partitions[i][myid][0];
-      stops[i] = partitions[i][myid][1];
-    }
-
-    int idx = starting_result_indices[myid]; // index of next destination slot
-    //printf("thread %d starting from index %d\n", myid, idx);
-    int end_index;
-    if (myid == P-1) // is last process
-      end_index = segment_end; // reuse
-    else
-      end_index = starting_result_indices[myid+1]-1;
-    //printf("end index is %d\n", end_index);
-    // for each slot, find smallest element from partitions
-    while (idx <= end_index) {
-      // find max of all valid candidate sources
-      double minVal = 1.1;
-      int minInd = 0;
-      // for each of pointers, if is less than stop and more than maxVal, use arr[pointers[x]] and store x
+  // 5. process i gets all partitions #i and merges its partitions into a single list
+  #pragma omp single // to ensure previous threads have completed, to avoid recalculating sums
+  {
+    // for each process, sum all assigned intervals
+    for (int p = 1; p < P; p++) {
+      int psum = 0;
       for (int i = 0; i < P; i++) {
-        if (pointers[i] <= stops[i] && arr[pointers[i]] < minVal) {
-          minVal = arr[pointers[i]];
-          minInd = i;
-        }
+        psum += 1 + partitions[unrolledIndex(P, i, p-1, 1)] - partitions[unrolledIndex(P, i, p-1, 0)];
       }
-      //printf("thread %d putting %f into slot %d\n", omp_get_thread_num(), minVal, idx);
-      result[idx] = minVal;
-      // increment source and dest pointers
-      pointers[minInd]++;
-      idx++;
-
-
+      starting_result_indices[p] = psum + starting_result_indices[p-1];
     }
   }
+
+  int myid = omp_get_thread_num();
+  int segment_start = myid*segment_size; 
+  int segment_end = segment_start+segment_size-1;
+  // shortcut aliases for source slots
+  int pointers[P]; // indices to next potential source slots
+  int stops[P];    // index to stop at for each source pointer
+  for (int i = 0; i < P; i++) {
+    pointers[i] = partitions[unrolledIndex(P, i, myid, 0)];
+    stops[i] = partitions[unrolledIndex(P, i, myid, 1)];
+  }
+
+  int idx = starting_result_indices[myid]; // index of next destination slot
+  //printf("thread %d starting from index %d\n", myid, idx);
+  int end_index;
+  if (myid == P-1) // is last process
+    end_index = segment_end; // reuse
+  else
+    end_index = starting_result_indices[myid+1]-1;
+  //printf("end index is %d\n", end_index);
+  // for each slot, find smallest element from partitions
+  while (idx <= end_index) {
+    // find max of all valid candidate sources
+    double minVal = 1.1;
+    int minInd = 0;
+    // for each of pointers, if is less than stop and more than maxVal, use arr[pointers[x]] and store x
+    for (int i = 0; i < P; i++) {
+      if (pointers[i] <= stops[i] && arr[pointers[i]] < minVal) {
+        minVal = arr[pointers[i]];
+        minInd = i;
+      }
+    }
+    result[idx] = minVal;
+    // increment source and dest pointers
+    pointers[minInd]++;
+    idx++;
+
+
+  }
+  free(partitions);
+  free(pivots);
   free(samples);
   return result;
 }
@@ -248,7 +288,7 @@ int main(int argc, char *argv[]) {
 		 	arr[i] = orig[i];
 		}
     gsl_rng_free(r);
-    //show(arr, N);
+    show(arr, N);
 
     // time execution [https://stackoverflow.com/questions/5248915/execution-time-of-c-program]
     clock_t begin = clock();
