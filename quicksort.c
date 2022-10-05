@@ -56,12 +56,11 @@ void verify(double *orig, double *arr, int length) {
   quicksort(orig, 0, length-1);
   for (int i = 0; i < length; i++) {
     if (orig[i] != arr[i]) {
-      printf("error for %d elements at element %d: %.8f != %.8f\n", length, i, orig[i], arr[i]);
-      //printf("invalid sorting for length %d\nexpected:\n", length);
-      //show(orig, length);
-      //printf("actual:\n");
+      printf("invalid sorting for length %d\nexpected:\n", length);
+      show(orig, length);
+      printf("actual:\n");
       show(arr, length);
-      //printf("%f != %f\n", orig[i], arr[i]);
+      printf("%f != %f\n", orig[i], arr[i]);
       return;
     }
   }
@@ -70,14 +69,12 @@ void verify(double *orig, double *arr, int length) {
 void sample(double* arr, int lo, int hi, int interval, double* samples, int threadID) {
   int P = omp_get_max_threads();
   int samples_index_zero = threadID * P;
-  
   for (int i = 0; i < P; i++) {
     samples[samples_index_zero+i] = arr[lo + i*interval]; // TODO check for segfault at end of array
   }
 }
 
 int unrolledIndex(int P, int row, int col, int ind) {
-  //  printf("unrolled (%d, %d, %d, %d): %d\n", P, row, col, ind, row*P + col + ind);
   return row*(P+P) + (col+col) + ind;
 }
 
@@ -88,31 +85,35 @@ void partition_segment(double* arr, int* partitions, double* pivots, int segment
   int segment_end = segment_start+segment_size-1;
   if (myid == P-1)
     segment_end = hi;
-  printf("test");
-  printf("thread %d will partition from %d - %d inclusive\n", myid, segment_start, segment_end);
+  //printf("thread %d will partition from %d - %d inclusive\n", myid, segment_start, segment_end);
 
   int slot = 0;
   int first_elem = 1;
 
   for (int i = segment_start; i<=segment_end; i++) { // for each item in this thread's segment
+
+    /* Branch 1: create new entry in correct slot */
     if (arr[i] > pivots[slot] || first_elem) { // if this item is greater than the current pivot or is first element
       first_elem = 0;
+
+      /* Increment slot number until arrive at correct slot */
       while (arr[i] > pivots[slot]) {
         slot++;
+        /* Arrived at last slot: record remaining elements */
         if (slot == P-1) { // out of pivots
-          printf("out of pivots. Thread %d setting last slot to [%d,%d]\n", myid, i ,segment_end);
+          //printf("out of pivots. Thread %d setting last slot to [%d,%d]\n", myid, i ,segment_end);
           partitions[unrolledIndex(P, myid, slot, 0)] = i;
           partitions[unrolledIndex(P, myid, slot, 1)] = segment_end;
           return;
         }
       }
-      printf("setting first element of slot %d. Thread %d setting [%d,%d]\n", slot, myid, i,i);
+      //printf("setting first element of slot %d. Thread %d setting [%d,%d]\n", slot, myid, i,i);
       partitions[unrolledIndex(P, myid, slot, 0)] = i;
       partitions[unrolledIndex(P, myid, slot, 1)] = i; // in case this partition has only one element
-    } else {
-      printf("updating slot %d. Thread %d setting [_,%d]\n",slot, myid,i);
-      partitions[unrolledIndex(P, myid, P-1, 1)] = i; // update partition end
-    }
+      } else {
+      //printf("updating slot %d. Thread %d setting [_,%d]\n",slot, myid,i);
+      partitions[unrolledIndex(P, myid, slot, 1)] = i; // update partition end
+      }
   }
 }
 
@@ -132,7 +133,7 @@ double* PSRS(double* arr, int lo, int hi) {
   //printf("pivot interval is %d\n", interval);
 
   // 1. P processes each do sequential quicksort on local segment
-#pragma omp parallel
+  #pragma omp parallel
   {
     int myid = omp_get_thread_num();
     int segment_lo = myid*segment_size;
@@ -140,7 +141,7 @@ double* PSRS(double* arr, int lo, int hi) {
     if (myid == P-1)
       segment_hi = hi;
 
-    //printf("thread %d will sort %d - %d inclusive\n", myid, segment_lo, segment_hi);
+    //    printf("thread %d will sort %d - %d inclusive\n", myid, segment_lo, segment_hi);
 
     quicksort(arr, segment_lo, segment_hi);
 
@@ -160,8 +161,8 @@ double* PSRS(double* arr, int lo, int hi) {
   for (int i = 0; i < P-1; i++)
     pivots[i] = samples[(P/2)+i*P];
 
-  printf("selected pivots: ");
-  show(pivots, P-1);
+  //printf("selected pivots: ");
+  //show(pivots, P-1);
 
   int* partitions = (int*)malloc(P*P*2*sizeof(int));
   // populate partitions with null entries
@@ -174,52 +175,47 @@ double* PSRS(double* arr, int lo, int hi) {
   int starting_result_indices[P];
   starting_result_indices[0] = 0;
 
+  /* for (int i = 0; i<=hi; i++) { */
+  /*   printf("%f, ", arr[i]); */
+  /* } */
+  /* printf("\n"); */
+
+
   // then broadcasts pivots to processes
   #pragma omp parallel
   {
     partition_segment(arr, partitions, pivots, segment_size, hi, P);
   }
 
-  // TODO not needed?
-  #pragma omp barrier
+  /* printf("partitions contents\n"); */
+  /* for (int i = 0; i < P; i++) { */
+  /*   for (int j = 0; j < P; j++) { */
+  /*     printf("[%d (%f),%d (%f)] | ", partitions[unrolledIndex(P, i, j, 0)], arr[partitions[unrolledIndex(P, i, j, 0)]], partitions[unrolledIndex(P, i, j, 1)], arr[partitions[unrolledIndex(P, i, j, 1)]]); */
+  /*   } */
+  /*   printf("\n"); */
+  /* } */
+  /* for (int i = 0; i< P*P*2; i++) { */
+  /*   printf("%d, ", partitions[i]); */
+  /* } */
+  /* printf("\n"); */
 
-  // TODO not needed?
-  #pragma omp single
-  {
-  printf("partitions contents\n");
-  for (int i = 0; i < P; i++) {
-    for (int j = 0; j < P; j++) {
-      printf("[%d (%f),%d (%f)] | ", partitions[unrolledIndex(P, i, j, 0)], arr[partitions[unrolledIndex(P, i, j, 0)]], partitions[unrolledIndex(P, i, j, 1)], arr[partitions[unrolledIndex(P, i, j, 1)]]);
-    }
-    printf("\n");
-  }
-  for (int i = 0; i< P*P*2; i++) {
-    printf("%d, ", partitions[i]);
-  }
-  printf("\n");
-  }
-
-  // TODO pragma not needed?
   // 5. process i gets all partitions #i and merges its partitions into a single list
-  #pragma omp single // to ensure previous threads have completed, to avoid recalculating sums
-  {
-    // for each process, sum all assigned intervals
-    for (int p = 1; p < P; p++) {
-      int psum = 0;
-      for (int i = 0; i < P; i++) {
-        psum += 1 + partitions[unrolledIndex(P, i, p-1, 1)] - partitions[unrolledIndex(P, i, p-1, 0)];
-      }
-      starting_result_indices[p] = psum + starting_result_indices[p-1];
+  // for each process, sum all assigned intervals
+  for (int p = 1; p < P; p++) {
+    int psum = 0;
+    for (int i = 0; i < P; i++) {
+      psum += 1 + partitions[unrolledIndex(P, i, p-1, 1)] - partitions[unrolledIndex(P, i, p-1, 0)];
     }
+    starting_result_indices[p] = psum + starting_result_indices[p-1];
   }
-  for (int i = 0; i< P; i++) {
-    printf("%d, ", starting_result_indices[i]);
-  }
-  printf("\n");
+  /* for (int i = 0; i< P; i++) { */
+  /*   printf("%d, ", starting_result_indices[i]); */
+  /* } */
+  /* printf("\n"); */
 
   #pragma omp parallel
   {
-    // extract shortcuts (TODO remove)
+    // extract elements to avoid recalculations
     int myid = omp_get_thread_num();
     int segment_start = myid*segment_size;
     int segment_end = segment_start+segment_size-1;
@@ -279,7 +275,7 @@ int main(int argc, char *argv[]) {
   int start = atoi(argv[2]);
   int end = atoi(argv[3]);
 
-  printf("\nusing %d threads, %d -> %d\n", threads, start, end);
+  //printf("\nusing %d threads, %d -> %d\n", threads, start, end);
   omp_set_num_threads(threads);
   omp_set_nested(1);
 
@@ -303,7 +299,7 @@ int main(int argc, char *argv[]) {
 		 	arr[i] = orig[i];
 		}
     gsl_rng_free(r);
-    show(arr, N);
+    //show(arr, N);
 
     // time execution [https://stackoverflow.com/questions/5248915/execution-time-of-c-program]
     clock_t begin = clock();
