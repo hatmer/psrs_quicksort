@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <gsl_randist.h>
+#include <float.h>
 
 // print out an array
 void show(double *arr, int length) {
@@ -212,7 +214,7 @@ double *PSRS(double *arr, int lo, int hi) {
     // for each slot, find smallest element from partitions
     while (idx <= end_index) {
       // find max of all valid candidate sources
-      double minVal = 1.1;
+      double minVal = DBL_MAX;
       int minInd = 0;
       // for each of pointers, if is less than stop and more than maxVal, use
       // arr[pointers[x]] and store x
@@ -236,11 +238,12 @@ double *PSRS(double *arr, int lo, int hi) {
 
 int main(int argc, char *argv[]) {
   if (argc != 4) {
-    printf("usage: ./%s <number of threads> <num elements>\n", argv[0]);
+    printf("usage: ./%s <number of threads> <num elements> <number specifying distribution (0-4)>\n", argv[0]);
     return -1;
   }
   int threads = atoi(argv[1]);
   int N = atoi(argv[2]);
+  int distribution = atoi(argv[3]);
 
   omp_set_num_threads(threads);
   omp_set_nested(1);
@@ -257,7 +260,23 @@ int main(int argc, char *argv[]) {
   T = gsl_rng_default;
   r = gsl_rng_alloc(T);
   for (int i = 0; i < N; i++) {
-    orig[i] = gsl_rng_uniform(r);
+    switch(distribution) {
+    case 0: // uniform
+      orig[i] = gsl_rng_uniform(r);
+      break;
+    case 1: // gaussian
+      orig[i] = gsl_ran_gaussian(r, .34 * (double)N);
+      break;
+    case 2:
+      orig[i] = gsl_ran_laplace(r, 1);
+      break;
+    case 3:
+      orig[i] = gsl_ran_lognormal(r, 0, 1);
+      break;
+    case 4:
+      orig[i] = gsl_ran_exponential(r, 1);
+      break;
+    }
     arr[i] = orig[i];
   }
   gsl_rng_free(r);
