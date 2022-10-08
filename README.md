@@ -1,4 +1,4 @@
-# PSRS with OpenMP
+# PSRS Quicksort
 Parallel Merge Sort with OpenMP using Parallel sorting by regular sampling (PSRS). PSRS achieves better load balancing than other parallel quicksort algorithms.
 
 
