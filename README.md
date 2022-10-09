@@ -1,5 +1,5 @@
 # PSRS QuickSort
-Parallel sorting by regular sampling (PSRS) QuickSort algorithm implementation. PSRS achieves better load balancing than other parallel QuickSort algorithms.
+Parallel Sorting by Regular Sampling (PSRS) QuickSort algorithm implementation. PSRS achieves better load balancing than other parallel QuickSort algorithms.
 
 
 PSRS has four phases:
