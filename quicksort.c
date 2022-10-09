@@ -1,10 +1,12 @@
+#include <float.h>
 #include <gsl/gsl_rng.h>
+#include <gsl_randist.h>
 #include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <gsl_randist.h>
-#include <float.h>
+
+#define PERF 1
 
 // print out an array
 void show(double *arr, int length) {
@@ -122,7 +124,7 @@ void partition_segment(double *arr, int *partitions, double *pivots,
   }
 }
 
-// https://www.uio.no/studier/emner/matnat/ifi/INF3380/v10/undervisningsmateriale/inf3380-week12.pdf
+// [https://www.uio.no/studier/emner/matnat/ifi/INF3380/v10/undervisningsmateriale/inf3380-week12.pdf]
 double *PSRS(double *arr, int lo, int hi) {
   int P = omp_get_max_threads();
   // 0. partition list into P segments
@@ -148,7 +150,6 @@ double *PSRS(double *arr, int lo, int hi) {
     quicksort(arr, segment_lo, segment_hi);
 
     // 2. each process samples its segment
-    // => store in array of pointers to arrays
     sample(arr, segment_lo, segment_hi, interval, samples, myid);
   }
 
@@ -213,11 +214,8 @@ double *PSRS(double *arr, int lo, int hi) {
       end_index = starting_result_indices[myid + 1] - 1;
     // for each slot, find smallest element from partitions
     while (idx <= end_index) {
-      // find max of all valid candidate sources
       double minVal = DBL_MAX;
       int minInd = 0;
-      // for each of pointers, if is less than stop and more than maxVal, use
-      // arr[pointers[x]] and store x
       for (int i = 0; i < P; i++) {
         if (pointers[i] <= stops[i] && arr[pointers[i]] < minVal) {
           minVal = arr[pointers[i]];
@@ -237,14 +235,24 @@ double *PSRS(double *arr, int lo, int hi) {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc != 4) {
-    printf("usage: ./%s <number of threads> <num elements> <number specifying distribution (0-4)>\n", argv[0]);
-    return -1;
+  int threads;
+  int N;
+  int distribution;
+  if (PERF) {
+    threads = 8;
+    N = 100000000;
+    distribution = 0;
+  } else {
+    if (argc != 4) {
+      printf("usage: ./%s <number of threads> <num elements> <number "
+             "specifying distribution (0-4)>\n",
+             argv[0]);
+      return -1;
+    }
+    threads = atoi(argv[1]);
+    N = atoi(argv[2]);
+    distribution = atoi(argv[3]);
   }
-  int threads = atoi(argv[1]);
-  int N = atoi(argv[2]);
-  int distribution = atoi(argv[3]);
-
   omp_set_num_threads(threads);
   omp_set_nested(1);
 
@@ -260,11 +268,11 @@ int main(int argc, char *argv[]) {
   T = gsl_rng_default;
   r = gsl_rng_alloc(T);
   for (int i = 0; i < N; i++) {
-    switch(distribution) {
-    case 0: // uniform
+    switch (distribution) {
+    case 0:
       orig[i] = gsl_rng_uniform(r);
       break;
-    case 1: // gaussian
+    case 1:
       orig[i] = gsl_ran_gaussian(r, .34 * (double)N);
       break;
     case 2:
@@ -291,9 +299,9 @@ int main(int argc, char *argv[]) {
 
   // verify
   verify(orig, result, N);
+  free(result);
 
   // cleanup
   free(arr);
   free(orig);
-  free(result);
 }
