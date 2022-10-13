@@ -1,12 +1,12 @@
 #include <float.h>
 #include <gsl/gsl_rng.h>
-#include <gsl_randist.h>
+#include <gsl/gsl_randist.h>
 #include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 
-#define PERF 1
+#define PERF 0
 
 // print out an array
 void show(double *arr, int length) {
@@ -141,12 +141,14 @@ double *PSRS(double *arr, int lo, int hi) {
 #pragma omp parallel
   {
     int myid = omp_get_thread_num();
+    //printf("thread %d doing paralllel quicksort\n", myid);
     int segment_lo = myid * segment_size;
     int segment_hi =
         segment_lo + segment_size - 1; // last element in this thread's segment
     if (myid == P - 1)
       segment_hi = hi;
 
+    //printf("thread %d doing paralllel quicksort %d-%d\n", myid, segment_lo, segment_hi);
     quicksort(arr, segment_lo, segment_hi);
 
     // 2. each process samples its segment
@@ -267,6 +269,7 @@ int main(int argc, char *argv[]) {
   gsl_rng_env_setup();
   T = gsl_rng_default;
   r = gsl_rng_alloc(T);
+  int tmp = 0;
   for (int i = 0; i < N; i++) {
     switch (distribution) {
     case 0:
@@ -284,6 +287,10 @@ int main(int argc, char *argv[]) {
     case 4:
       orig[i] = gsl_ran_exponential(r, 1);
       break;
+    case 5:
+      orig[i] = tmp;
+      tmp += 1;
+      break;
     }
     arr[i] = orig[i];
   }
@@ -292,15 +299,22 @@ int main(int argc, char *argv[]) {
   // time execution
   // [https://stackoverflow.com/questions/5248915/execution-time-of-c-program]
   clock_t begin = clock();
-  double *result = PSRS(arr, 0, N - 1);
+  double *result;
+  if (threads == 1)
+    quicksort(arr,0,N-1);
+  else
+    result = PSRS(arr, 0, N - 1);
   clock_t end = clock();
   double time_spent = (float)(end - begin) / CLOCKS_PER_SEC;
-  printf("time: %.8f ms\n", time_spent * 1000); // time in milliseconds
+  printf("%.8f\n", time_spent * 1000); // time in milliseconds
 
   // verify
+  if (threads == 1)
+    verify(orig, arr, N);
+  else {
   verify(orig, result, N);
   free(result);
-
+  }
   // cleanup
   free(arr);
   free(orig);
