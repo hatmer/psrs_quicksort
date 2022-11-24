@@ -1,4 +1,6 @@
 # PSRS QuickSort
+Final project for High Performance and Parallel Computing - 1TD064
+
 Parallel Sorting by Regular Sampling (PSRS) QuickSort algorithm implementation. PSRS achieves better load balancing than other parallel QuickSort algorithms.
 
 
