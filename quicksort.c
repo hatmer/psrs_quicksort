@@ -297,15 +297,14 @@ int main(int argc, char *argv[]) {
   gsl_rng_free(r);
 
   // time execution
-  // [https://stackoverflow.com/questions/5248915/execution-time-of-c-program]
-  clock_t begin = clock();
+  double begin = omp_get_wtime();
   double *result;
   if (threads == 1)
     quicksort(arr,0,N-1);
   else
     result = PSRS(arr, 0, N - 1);
-  clock_t end = clock();
-  double time_spent = (float)(end - begin) / CLOCKS_PER_SEC;
+  double end = omp_get_wtime();
+  double time_spent = (float)(end - begin);
   printf("%.8f\n", time_spent * 1000); // time in milliseconds
 
   // verify
