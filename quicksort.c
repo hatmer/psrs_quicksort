@@ -246,8 +246,8 @@ int main(int argc, char *argv[]) {
     distribution = 0;
   } else {
     if (argc != 4) {
-      printf("usage: ./%s <number of threads> <num elements> <number "
-             "specifying distribution (0-4)>\n",
+      printf("usage: ./%s <number of threads> <number of elements> <number "
+             "specifying distribution (0-3)>\n",
              argv[0]);
       return -1;
     }
@@ -261,41 +261,29 @@ int main(int argc, char *argv[]) {
   // run tests
   double *orig = (double *)malloc(N * sizeof(double));
   double *arr = (double *)malloc(N * sizeof(double));
+  double lambda = 10;
+  double tmp = 0;
 
-  // create random data for testing
-  // [http://gnu.ist.utl.pt/software/gsl/manual/html_node/Random-Number-Generator-Examples.html]
-  const gsl_rng_type *T;
-  gsl_rng *r;
-  gsl_rng_env_setup();
-  T = gsl_rng_default;
-  r = gsl_rng_alloc(T);
-  int tmp = 0;
   for (int i = 0; i < N; i++) {
+    double r = drand48();
     switch (distribution) {
-    case 0:
-      orig[i] = gsl_rng_uniform(r);
+    case 0: // uniform
+      orig[i] = r;
       break;
-    case 1:
-      orig[i] = gsl_ran_gaussian(r, .34 * (double)N);
+    case 1: // exponential
+      orig[i] = -lambda*log(1-drand48());
       break;
-    case 2:
-      orig[i] = gsl_ran_laplace(r, 1);
+    case 2: // normal
+      double x = drand48();
+      orig[i] = sqrt(-2*log(x))*cos(2*M_PI*r);
       break;
-    case 3:
-      orig[i] = gsl_ran_lognormal(r, 0, 1);
-      break;
-    case 4:
-      orig[i] = gsl_ran_exponential(r, 1);
-      break;
-    case 5:
+    case 3: // sorted
       orig[i] = tmp;
       tmp += 1;
       break;
     }
     arr[i] = orig[i];
   }
-  gsl_rng_free(r);
-
   // time execution
   double begin = omp_get_wtime();
   double *result;
@@ -318,3 +306,4 @@ int main(int argc, char *argv[]) {
   free(arr);
   free(orig);
 }
+
