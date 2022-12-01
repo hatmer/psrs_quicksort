@@ -1,10 +1,7 @@
 #include <float.h>
-#include <gsl/gsl_rng.h>
-#include <gsl/gsl_randist.h>
 #include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 #include <math.h>
 
 #define PERF 0
