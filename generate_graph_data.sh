@@ -11,9 +11,7 @@ echo "speedup per thread"
 ./psrs 128 100000000 0
 
 echo "algorithm vs different distributions"
-./psrs 16 100000000 0
-./psrs 16 100000000 1
-./psrs 16 100000000 2
-./psrs 16 100000000 3
-./psrs 16 100000000 4
-./psrs 16 100000000 5
+./psrs 8 100000000 0
+./psrs 8 100000000 1
+./psrs 8 100000000 2
+./psrs 8 100000000 3
