@@ -1,8 +1,7 @@
 # PSRS QuickSort
 Final project for High Performance and Parallel Computing (1TD064).
 
-Parallel Sorting by Regular Sampling (PSRS) QuickSort algorithm implementation. PSRS achieves better load balancing than other parallel QuickSort algorithms.
-
+Parallel Sorting by Regular Sampling (PSRS) QuickSort algorithm implementation is a parallel implementation of the quicksort algorithm using OpenMP (Open Multi-Processing) library. The quicksort algorithm is a divide-and-conquer algorithm that sorts an array by repeatedly partitioning the array around a pivot element, and recursively sorting the resulting sub-arrays. PSRS achieves better load balancing than other parallel QuickSort algorithms.
 
 PSRS has four phases:
 1. Each process uses sequential quicksort on its local segment, and
