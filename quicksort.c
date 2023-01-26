@@ -1,15 +1,15 @@
 #include <float.h>
+#include <math.h>
 #include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h>
+#include <time.h>
 
 #define PERF 0
 
 // print out an array
 void show(double *arr, int length) {
-  for (int i = 0; i < length; i++)
-    printf("%.4f,", arr[i]);
+  for (int i = 0; i < length; i++) printf("%.4f,", arr[i]);
   printf("\n");
 }
 
@@ -29,8 +29,7 @@ int partition(double *arr, int lo, int hi) {
     do {
       j--;
     } while (arr[j] > pivot);
-    if (i >= j)
-      return j;
+    if (i >= j) return j;
 
     // swap
     double tmp = arr[i];
@@ -78,46 +77,53 @@ void sample(double *arr, int lo, int hi, int interval, double *samples,
   }
 }
 
+int binarySearch(double *arr, int start, int end, double value) {
+  int closestLower = -1;
+  while (start <= end) {
+    int mid = (start + end) / 2;
+    if (arr[mid] == value) {
+      return mid;
+    } else if (arr[mid] < value) {
+      closestLower = mid;
+      start = mid + 1;
+    } else {
+      end = mid - 1;
+    }
+  }
+  return closestLower;
+}
+
 int unrolledIndex(int P, int row, int col, int ind) {
-  return row * (P + P) + (col + col) + ind;
+  return (row * P + col) * 2 + ind;
 }
 
 void partition_segment(double *arr, int *partitions, double *pivots,
                        int segment_size, int hi, int P) {
-  // 4. each process partitions its sorted segment into P disjoint pieces
   int myid = omp_get_thread_num();
   int segment_start = myid * segment_size;
   int segment_end = segment_start + segment_size - 1;
-  if (myid == P - 1)
+  if (myid == P - 1) {
     segment_end = hi;
+  }
 
-  int slot = 0;
-  int first_elem = 1;
+  int next_start = segment_start;
 
-  for (int i = segment_start; i <= segment_end;
-       i++) { // for each item in this thread's segment
-
-    /* Branch 1: create new entry in correct slot */
-    if (arr[i] > pivots[slot] ||
-        first_elem) { // if this item is greater than the current pivot or is
-                      // first element
-      first_elem = 0;
-
-      /* Increment slot number until arrive at correct slot */
-      while (arr[i] > pivots[slot]) {
-        slot++;
-        /* Arrived at last slot: record remaining elements */
-        if (slot == P - 1) { // out of pivots
-          partitions[unrolledIndex(P, myid, slot, 0)] = i;
-          partitions[unrolledIndex(P, myid, slot, 1)] = segment_end;
-          return;
-        }
+  for (int slot = 0; slot <= P - 1; slot++) {  // for each pivot
+    int index = binarySearch(arr, segment_start, segment_end,
+                             pivots[slot]);  // either index of pivot or index
+                                             // of closest smaller element
+    if (index != -1) {
+      partitions[unrolledIndex(P, myid, slot, 0)] = next_start;
+      partitions[unrolledIndex(P, myid, slot, 1)] = index;
+      next_start = index + 1;
+    }
+    if (slot == P - 2) {
+      // check if any elements remain after last pivot
+      if (next_start <= segment_end) {
+        partitions[unrolledIndex(P, myid, slot + 1, 0)] = next_start;
+        partitions[unrolledIndex(P, myid, slot + 1, 1)] = segment_end;
       }
-      partitions[unrolledIndex(P, myid, slot, 0)] = i;
-      partitions[unrolledIndex(P, myid, slot, 1)] =
-          i; // in case this partition has only one element
-    } else {
-      partitions[unrolledIndex(P, myid, slot, 1)] = i; // update partition end
+      return;
     }
   }
 }
@@ -126,27 +132,26 @@ void partition_segment(double *arr, int *partitions, double *pivots,
 double *PSRS(double *arr, int lo, int hi) {
   int P = omp_get_max_threads();
   // 0. partition list into P segments
-  int segment_size = ((hi + 1) / P); // + 1;
+  int segment_size = ((hi + 1) / P);  // + 1;
 
   // each process will take P samples
   int Psquared = P * P;
   double *samples = (double *)malloc(Psquared * sizeof(double));
   int interval = (hi + 1) / Psquared;
-  if (interval == 0)
-    interval = 1;
+  if (interval == 0) interval = 1;
 
 // 1. P processes each do sequential quicksort on local segment
 #pragma omp parallel
   {
     int myid = omp_get_thread_num();
-    //printf("thread %d doing paralllel quicksort\n", myid);
+    // printf("thread %d doing paralllel quicksort\n", myid);
     int segment_lo = myid * segment_size;
     int segment_hi =
-        segment_lo + segment_size - 1; // last element in this thread's segment
-    if (myid == P - 1)
-      segment_hi = hi;
+        segment_lo + segment_size - 1;  // last element in this thread's segment
+    if (myid == P - 1) segment_hi = hi;
 
-    //printf("thread %d doing paralllel quicksort %d-%d\n", myid, segment_lo, segment_hi);
+    // printf("thread %d doing paralllel quicksort %d-%d\n", myid, segment_lo,
+    // segment_hi);
     quicksort(arr, segment_lo, segment_hi);
 
     // 2. each process samples its segment
@@ -159,8 +164,7 @@ double *PSRS(double *arr, int lo, int hi) {
   // then selects P-1 pivots
   // sample at regular intervals starting at P/2 to avoid lowest and highest
   double *pivots = (double *)malloc((P - 1) * sizeof(double));
-  for (int i = 0; i < P - 1; i++)
-    pivots[i] = samples[(P / 2) + i * P];
+  for (int i = 0; i < P - 1; i++) pivots[i] = samples[(P / 2) + i * P];
 
   int *partitions = (int *)malloc(P * P * 2 * sizeof(int));
   // populate partitions with null entries
@@ -198,18 +202,18 @@ double *PSRS(double *arr, int lo, int hi) {
       segment_end = hi;
     }
     // shortcut aliases for source slots
-    int pointers[P]; // indices to next potential source slots
-    int stops[P];    // index to stop at for each source pointer
+    int pointers[P];  // indices to next potential source slots
+    int stops[P];     // index to stop at for each source pointer
     for (int i = 0; i < P; i++) {
       pointers[i] = partitions[unrolledIndex(P, i, myid, 0)];
       stops[i] = partitions[unrolledIndex(P, i, myid, 1)];
     }
 
     // merge
-    int idx = starting_result_indices[myid]; // index of next destination slot
+    int idx = starting_result_indices[myid];  // index of next destination slot
     int end_index;
-    if (myid == P - 1)         // is last process
-      end_index = segment_end; // reuse
+    if (myid == P - 1)          // is last process
+      end_index = segment_end;  // reuse
     else
       end_index = starting_result_indices[myid + 1] - 1;
     // for each slot, find smallest element from partitions
@@ -238,15 +242,17 @@ int main(int argc, char *argv[]) {
   int threads;
   int N;
   int distribution;
+  srand(time(0));
   if (PERF) {
     threads = 8;
     N = 100000000;
     distribution = 0;
   } else {
     if (argc != 4) {
-      printf("usage: ./%s <number of threads> <number of elements> <number "
-             "specifying distribution (0-3)>\n",
-             argv[0]);
+      printf(
+          "usage: ./%s <number of threads> <number of elements> <number "
+          "specifying distribution (0-3)>\n",
+          argv[0]);
       return -1;
     }
     threads = atoi(argv[1]);
@@ -265,20 +271,20 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < N; i++) {
     double r = drand48();
     switch (distribution) {
-    case 0: // uniform
-      orig[i] = r;
-      break;
-    case 1: // exponential
-      orig[i] = -lambda*log(1-drand48());
-      break;
-    case 2: // normal
-      double x = drand48();
-      orig[i] = sqrt(-2*log(x))*cos(2*M_PI*r);
-      break;
-    case 3: // sorted
-      orig[i] = tmp;
-      tmp += 1;
-      break;
+      case 0:  // uniform
+        orig[i] = r;
+        break;
+      case 1:  // exponential
+        orig[i] = -lambda * log(1 - drand48());
+        break;
+      case 2:  // normal
+        double x = drand48();
+        orig[i] = sqrt(-2 * log(x)) * cos(2 * M_PI * r);
+        break;
+      case 3:  // sorted
+        orig[i] = tmp;
+        tmp += 1;
+        break;
     }
     arr[i] = orig[i];
   }
@@ -286,22 +292,21 @@ int main(int argc, char *argv[]) {
   double begin = omp_get_wtime();
   double *result;
   if (threads == 1)
-    quicksort(arr,0,N-1);
+    quicksort(arr, 0, N - 1);
   else
     result = PSRS(arr, 0, N - 1);
   double end = omp_get_wtime();
   double time_spent = (float)(end - begin);
-  printf("%.8f\n", time_spent * 1000); // time in milliseconds
+  printf("%.8f\n", time_spent * 1000);  // time in milliseconds
 
   // verify
   if (threads == 1)
     verify(orig, arr, N);
   else {
-  verify(orig, result, N);
-  free(result);
+    verify(orig, result, N);
+    free(result);
   }
   // cleanup
   free(arr);
   free(orig);
 }
-
