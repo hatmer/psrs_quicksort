@@ -97,7 +97,7 @@ int unrolledIndex(int P, int row, int col, int ind) {
   return (row * P + col) * 2 + ind;
 }
 
-void partition_segment(double *arr, int *partitions, double *pivots,
+void partitionSegment(double *arr, int *partitions, double *pivots,
                        int segment_size, int hi, int P) {
   int myid = omp_get_thread_num();
   int segment_start = myid * segment_size;
@@ -179,7 +179,7 @@ double *PSRS(double *arr, int lo, int hi) {
 
 // then broadcasts pivots to processes
 #pragma omp parallel
-  { partition_segment(arr, partitions, pivots, segment_size, hi, P); }
+  { partitionSegment(arr, partitions, pivots, segment_size, hi, P); }
 
   // 5. process i gets all partitions #i and merges its partitions into a single
   // list for each process, sum all assigned intervals
